@@ -1,0 +1,81 @@
+# Ansible requires a hosts file with a predetermined IP, so connect to localhost then prompt for remote IP
+- hosts: localhost
+  gather_facts: no
+  vars_prompt:
+    - name: remote_IP
+      prompt: "What is the remote IP?"
+      private: no
+  tasks:
+    - add_host:
+        name: "{{ remote_IP }}"
+        groups: dynamically_created_hosts
+- hosts: dynamically_created_hosts
+  become: yes
+  become_user: root
+  vars_prompt:
+    - name: shadowsocks_port
+      prompt: Pick a port
+      default: "8888"
+  tasks:
+    - name: Set TCP fast open
+      sysctl:
+        name: net.ipv4.tcp_fastopen
+        value: 3
+        state: present
+    #This PPA is updated regularly, the one used by streisand is old.
+    - name: Add the Shadowsocks PPA
+      apt_repository:
+        repo: "ppa:fsgmhoward/shadowsocks-libev"
+    - name: Install shadowsocks-libev
+      apt:
+        name: shadowsocks-libev
+        state: present
+        update_cache: true
+    - name: Install qrencode
+      apt:
+        name: qrencode
+        state: present
+        update_cache: true
+    - name: Create the shadowsocks directory
+      file:
+        path: "/etc/shadowsocks"
+        owner: root
+        group: nogroup
+        mode: 0755
+        state: directory
+    - name: "Generate a secure password"
+      shell: openssl rand -base64 48 > /etc/shadowsocks/shadowsocks-password.txt
+      args:
+        creates: /etc/shadowsocks/shadowsocks-password.txt
+    - name: Set permissions on the Shadowsocks password file
+      file:
+        path: "/etc/shadowsocks/shadowsocks-password.txt"
+        owner: root
+        group: root
+        mode: 0600
+    - name: Register Shadowsocks password
+      command: cat /etc/shadowsocks/shadowsocks-password.txt
+      register: shadowsocks_password
+      changed_when: False
+    - name: "Generate default config for SS"
+      template:
+        src: config.json.j2
+        dest: "/etc/shadowsocks/config.json"
+        group: root
+        mode: 0600
+    - name: "Generate system service"
+      copy:
+        dest: "/lib/systemd/system/shadowsocks-libev.service"
+        src: "./shadowsocks-libev-server@.service"
+    - name: Enable start at boot and start now
+      systemd:
+        name: shadowsocks-libev.service
+        daemon_reload: yes
+        enabled: yes
+        state: restarted
+    - name: Generate the Shadowsocks QR code
+      shell: echo -n 'aes-256-cfb:{{ shadowsocks_password.stdout }}@192.248.183.30:8888' | base64 --wrap=0 | sed 's/^/ss:\/\//' | qrencode -s 8 -o /etc/shadowsocks/shadowsocks-qr-code.png
+    - name: Retrieve the QR code
+      fetch:
+        src: /etc/shadowsocks/shadowsocks-qr-code.png
+        dest: ./generatedqr.png

@@ -1,0 +1,10 @@
+{
+    "server":["[::0]","0.0.0.0"],
+    "mode":"tcp_and_udp",
+    "server_port":{{ shadowsocks_port }},
+    "password":"{{ shadowsocks_password.stdout }}",
+    "timeout":300,
+    "method":"aes-256-cfb",
+    "nameserver":"1.1.1.1",
+    "fast_open":true
+}
